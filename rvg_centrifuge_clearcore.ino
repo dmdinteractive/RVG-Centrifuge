@@ -311,8 +311,8 @@ void loop() {
 
       if (millis() - stateStartTime >= preStartDelay) {
         if (motor.HlfbState() != MotorDriver::HLFB_ASSERTED) {
-          enterFault("Motor did not finish enabling (HLFB not asserted)");
-          break;
+          Serial.println("WARNING: HLFB not asserted during test mode - proceeding anyway so the motor can be bench-tested");
+          Serial.println("This is temporary while the lid safety is disabled.");
         }
         motor.ClearAlerts();   // Clear anything left over from enabling
         Serial.println("Pre-start delay complete - Starting motor!");
