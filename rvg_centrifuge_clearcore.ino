@@ -102,13 +102,13 @@ enum SystemState {
   FAULT_LOCKOUT               // NEW: motor faulted, lid held locked for FAULT_HOLD_TIME
 };
 
-SystemState   currentState   = WAITING_FOR_LID_CLOSE;
+SystemState   currentState   = WAITING_FOR_START_BUTTON;  // Test mode: lid switch is temporarily ignored
 unsigned long stateStartTime = 0;
 unsigned long lastVelocityUpdate = 0;
 bool spinClockwise      = true;
-bool lastLidState       = false;
+bool lastLidState       = true;   // Lid switch is ignored during bench testing
 bool lastButtonState    = false;
-bool lidWasOpened       = true;   // Start assuming lid was opened to allow first cycle
+bool lidWasOpened       = false;  // Sensor is bypassed for test mode
 bool motorStopCommanded = false;  // Used during ramp-down so the stop is only sent once
 bool moveRejectReported = false;  // Avoids flooding serial if moves are rejected
 
@@ -232,15 +232,16 @@ void setup() {
   Serial.println("The I/O LED on the ClearCore lights when an input is ON (closed)");
   Serial.println("----------------------\n");
 
-  Serial.println("System ready - Close lid, then press START");
+  Serial.println("System ready - Press START to begin test cycle");
 
-  lastLidState    = isLidClosed();
+  lastLidState    = true;
   lastButtonState = isStartPressed();
 }
 
 // =====================================================================
 void loop() {
-  bool lidClosed     = isLidClosed();
+  // TEMPORARY TEST MODE: ignore the magnetic lid switch until safety logic is added back.
+  bool lidClosed     = true;
   bool buttonDown    = isStartPressed();
   bool buttonPressed = buttonDown && !lastButtonState;  // true only on the moment of press
   lastButtonState    = buttonDown;
@@ -265,52 +266,31 @@ void loop() {
     lastDebugTime = millis();
   }
 
-  // ---- Lid change handling (same as R4 version, plus button state) ----
-  if (lidClosed != lastLidState) {
-    Serial.println("!!! LID STATUS CHANGE DETECTED !!!");
-    Serial.print("Lid is now: ");
-    Serial.println(lidClosed ? "CLOSED" : "OPEN");
-
-    if (!lidClosed) {
-      // Lid just opened - engage locks
-      lockLid();
-      Serial.println("Lid opened - Locks ENGAGED");
-      lidWasOpened = true;
-
-      if (currentState == WAITING_FOR_LID_OPEN) {
-        Serial.println("Ready for new cycle - close lid, then press START");
-        changeState(WAITING_FOR_LID_CLOSE);
-      } else if (currentState == WAITING_FOR_START_BUTTON) {
-        Serial.println("Lid opened before START was pressed - close lid again");
-        changeState(WAITING_FOR_LID_CLOSE);
-      }
-    } else {
-      // Lid just closed
-      if (currentState == WAITING_FOR_LID_CLOSE && lidWasOpened) {
-        Serial.println("=================================");
-        Serial.println("LID CLOSED - Press START to begin");
-        Serial.println("=================================");
-        changeState(WAITING_FOR_START_BUTTON);
-      }
-    }
-    lastLidState = lidClosed;
-  }
+  // ---- Magnetic lid switch temporarily disabled for bench testing ----
+  lastLidState = true;
 
   // ---- State machine ----
   switch (currentState) {
 
     case WAITING_FOR_LID_CLOSE:
       if (buttonPressed) {
-        Serial.println("START ignored - close the lid first");
+        Serial.println("=================================");
+        Serial.println("START PRESSED - STARTING TEST CYCLE");
+        Serial.println("Magnetic lid switch is bypassed for test mode");
+        Serial.println("Starting in 2 seconds...");
+        Serial.println("=================================");
+        lidWasOpened = false;
+        enableMotor();
+        changeState(PRE_START_DELAY);
       }
       break;
 
     case WAITING_FOR_START_BUTTON:
-      if (buttonPressed && lidClosed) {
+      if (buttonPressed) {
         Serial.println("=================================");
-        Serial.println("START PRESSED - STARTING CYCLE");
+        Serial.println("START PRESSED - STARTING TEST CYCLE");
+        Serial.println("Magnetic lid switch is bypassed for test mode");
         Serial.println("Starting in 2 seconds...");
-        Serial.println("Locks remain ENGAGED during cycle");
         Serial.println("=================================");
         lidWasOpened = false;
         enableMotor();   // Enable now so the ClearPath is ready when the ramp starts
@@ -417,7 +397,10 @@ void loop() {
 
     case WAITING_FOR_LID_OPEN:
       if (buttonPressed) {
-        Serial.println("START ignored - open and close the lid first");
+        Serial.println("START pressed - running test cycle with lid switch bypassed");
+        lidWasOpened = false;
+        enableMotor();
+        changeState(PRE_START_DELAY);
       }
       break;
 
