@@ -143,7 +143,7 @@ void setup() {
   startButton.FilterLength(INPUT_FILTER_MS, DigitalIn::FILTER_UNIT_MS);
   lidSwitch.FilterLength(INPUT_FILTER_MS, DigitalIn::FILTER_UNIT_MS);
 
-  lockLid();     // Start in the safe state: door locked until cycle completion
+  unlockLid();   // Start unlocked; the lid switch will engage the lock when closed
 
   // ---- Motor setup ----
   MotorMgr.MotorInputClocking(MotorManager::CLOCK_RATE_NORMAL);
@@ -188,41 +188,6 @@ void setup() {
   Serial.println("6. Cycle ends -> locks unlock");
   Serial.println("=================================");
 
-  // ---- MOTOR TEST: 2 seconds at 100 RPM (same as R4 version) ----
-  Serial.println("\n--- MOTOR TEST ---");
-  Serial.println("Enabling motor and waiting for HLFB...");
-  motor.EnableRequest(true);
-  unsigned long enableStart = millis();
-  while (motor.HlfbState() != MotorDriver::HLFB_ASSERTED &&
-         millis() - enableStart < 3000) {
-    delay(10);
-  }
-
-  if (motor.HlfbState() != MotorDriver::HLFB_ASSERTED) {
-    Serial.println("WARNING: HLFB never asserted. Check:");
-    Serial.println("  - ClearPath power and blue cable on M-0");
-    Serial.println("  - MSP HLFB mode = ASG-Position w/Measured Torque, 482 Hz");
-  } else {
-    motor.ClearAlerts();
-    Serial.println("Motor enabled. Running 2 seconds at 100 RPM");
-    int32_t startPos = motor.PositionRefCommanded();
-    int32_t testStepsPerSec = (int32_t)(100.0 * STEPS_PER_REV / 60.0);
-    if (motor.MoveVelocity(testStepsPerSec)) {
-      delay(2000);
-      motor.MoveStopAbrupt();
-      delay(100);
-      Serial.print("Test complete - sent ");
-      Serial.print(motor.PositionRefCommanded() - startPos);
-      Serial.println(" step pulses");
-    } else {
-      Serial.println("Test move was REJECTED by ClearCore");
-      Serial.print("Alert register: 0x");
-      Serial.println(motor.AlertReg().reg, HEX);
-    }
-  }
-  motor.EnableRequest(false);
-  Serial.println("----------------------\n");
-
   // ---- Input test printout ----
   Serial.println("--- INPUT TEST ---");
   Serial.print("Lid switch (I/O-2): ");
@@ -232,7 +197,15 @@ void setup() {
   Serial.println("The I/O LED on the ClearCore lights when an input is ON (closed)");
   Serial.println("----------------------\n");
 
-  Serial.println("System ready - Close lid, then press START");
+  if (isLidClosed()) {
+    lockLid();
+    lidWasOpened = false;
+    changeState(WAITING_FOR_START_BUTTON);
+    Serial.println("Lid is closed - lock engaged; press START");
+  } else {
+    unlockLid();
+    Serial.println("System ready - Lid is open and unlocked; close lid to engage lock");
+  }
 
   lastLidState    = isLidClosed();
   lastButtonState = isStartPressed();
@@ -287,6 +260,7 @@ void loop() {
     } else {
       // Lid just closed
       if (currentState == WAITING_FOR_LID_CLOSE && lidWasOpened) {
+        lockLid();
         Serial.println("=================================");
         Serial.println("LID CLOSED - Press START to begin");
         Serial.println("=================================");
@@ -447,16 +421,16 @@ bool isStartPressed() {
   return startButton.State();
 }
 
-// Direct-drive lock output polarity: invert the state so the lock is engaged
-// when the output is in the state required by the installed actuator wiring.
+// Direct-drive lock output polarity:
+// IO-0 de-energized = lid unlocked; IO-0 energized = lid locked.
 void lockLid() {
-  lockRelay.State(false);
-  Serial.println("Lid LOCKED (output LOW)");
+  lockRelay.State(true);
+  Serial.println("Lid LOCKED (IO-0 ENERGIZED)");
 }
 
 void unlockLid() {
-  lockRelay.State(true);
-  Serial.println("Lid UNLOCKED (output HIGH)");
+  lockRelay.State(false);
+  Serial.println("Lid UNLOCKED (IO-0 DE-ENERGIZED)");
 }
 
 void enableMotor() {

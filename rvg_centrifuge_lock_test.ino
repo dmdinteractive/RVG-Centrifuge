@@ -12,14 +12,15 @@
 
 const uint16_t INPUT_FILTER_MS = 20;
 
-// Direct-drive lock output polarity: invert the state for the installed actuator.
+// Direct-drive lock output polarity:
+// IO-0 de-energized = unlocked; IO-0 energized = locked.
 void lockLid() {
-  lockRelay.State(false);
+  lockRelay.State(true);
   Serial.println("LOCK: ENGAGED");
 }
 
 void unlockLid() {
-  lockRelay.State(true);
+  lockRelay.State(false);
   Serial.println("LOCK: UNLOCKED");
 }
 
