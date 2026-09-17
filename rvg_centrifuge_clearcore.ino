@@ -143,7 +143,7 @@ void setup() {
   startButton.FilterLength(INPUT_FILTER_MS, DigitalIn::FILTER_UNIT_MS);
   lidSwitch.FilterLength(INPUT_FILTER_MS, DigitalIn::FILTER_UNIT_MS);
 
-  unlockLid();   // Unlock lid initially (relay energized) - same as R4 version
+  lockLid();     // Start in the safe state: door locked until cycle completion
 
   // ---- Motor setup ----
   MotorMgr.MotorInputClocking(MotorManager::CLOCK_RATE_NORMAL);
