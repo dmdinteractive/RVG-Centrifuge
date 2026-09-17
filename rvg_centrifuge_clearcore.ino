@@ -447,17 +447,16 @@ bool isStartPressed() {
   return startButton.State();
 }
 
-// NO contact wiring: the relay must be energized to close the circuit.
-// Match the physical relay wiring so the lock is engaged while the coil is driven.
-// Note: on power loss the relay drops out, so the lock state must be handled explicitly.
+// Direct-drive lock output polarity: invert the state so the lock is engaged
+// when the output is in the state required by the installed actuator wiring.
 void lockLid() {
-  lockRelay.State(true);
-  Serial.println("Lid LOCKED (relay ENERGIZED)");
+  lockRelay.State(false);
+  Serial.println("Lid LOCKED (output LOW)");
 }
 
 void unlockLid() {
-  lockRelay.State(false);
-  Serial.println("Lid UNLOCKED (relay DE-ENERGIZED)");
+  lockRelay.State(true);
+  Serial.println("Lid UNLOCKED (output HIGH)");
 }
 
 void enableMotor() {

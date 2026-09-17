@@ -12,14 +12,14 @@
 
 const uint16_t INPUT_FILTER_MS = 20;
 
-// NO contact wiring: the relay must be energized to close the circuit.
+// Direct-drive lock output polarity: invert the state for the installed actuator.
 void lockLid() {
-  lockRelay.State(true);
+  lockRelay.State(false);
   Serial.println("LOCK: ENGAGED");
 }
 
 void unlockLid() {
-  lockRelay.State(false);
+  lockRelay.State(true);
   Serial.println("LOCK: UNLOCKED");
 }
 
