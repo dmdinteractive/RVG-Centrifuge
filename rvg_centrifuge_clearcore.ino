@@ -447,16 +447,17 @@ bool isStartPressed() {
   return startButton.State();
 }
 
-// Relay energized = lock released. Relay off = locked.
-// Note: on power loss the relay drops out, so the lock engages.
+// NO contact wiring: the relay must be energized to close the circuit.
+// Match the physical relay wiring so the lock is engaged while the coil is driven.
+// Note: on power loss the relay drops out, so the lock state must be handled explicitly.
 void lockLid() {
-  lockRelay.State(false);
-  Serial.println("Lid LOCKED (relay OFF)");
+  lockRelay.State(true);
+  Serial.println("Lid LOCKED (relay ENERGIZED)");
 }
 
 void unlockLid() {
-  lockRelay.State(true);
-  Serial.println("Lid UNLOCKED (relay ON)");
+  lockRelay.State(false);
+  Serial.println("Lid UNLOCKED (relay DE-ENERGIZED)");
 }
 
 void enableMotor() {
