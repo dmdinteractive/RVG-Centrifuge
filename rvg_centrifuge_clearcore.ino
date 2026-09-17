@@ -80,7 +80,7 @@ unsigned long rampUpTime    = 5000;   // 5 seconds to ramp up
 unsigned long holdTime      = 5000;   // 5 seconds at full speed
 unsigned long rampDownTime  = 10000;  // 10 seconds to ramp down
 unsigned long postSpinDelay = 3000;   // Keep lid locked this long after stop
-unsigned long preStartDelay = 2000;   // Delay after button press before spinning
+unsigned long preStartDelay = 0;      // Start as soon as the motor is enabled
 
 // ---------------- ClearCore-specific settings ----------------
 const unsigned long VELOCITY_UPDATE_MS = 10;     // How often the S-curve speed is re-sent
@@ -287,10 +287,11 @@ void loop() {
       if (buttonPressed && lidClosed) {
         Serial.println("=================================");
         Serial.println("START PRESSED - STARTING CYCLE");
-        Serial.println("Starting in 2 seconds...");
+        Serial.println("Starting motor...");
         Serial.println("Locks remain ENGAGED during cycle");
         Serial.println("=================================");
         lidWasOpened = false;
+        lockLid();       // Confirm the lock output before enabling the motor
         enableMotor();   // Enable now so the ClearPath is ready when the ramp starts
         changeState(PRE_START_DELAY);
       }
