@@ -238,28 +238,32 @@ void loop() {
     lastDebugTime = millis();
   }
 
-  // ---- Lid change handling (same as R4 version, plus button state) ----
+  // ---- Simple lid/lock handling ----
   if (lidClosed != lastLidState) {
     Serial.println("!!! LID STATUS CHANGE DETECTED !!!");
     Serial.print("Lid is now: ");
     Serial.println(lidClosed ? "CLOSED" : "OPEN");
 
     if (!lidClosed) {
-      // Lid just opened - engage locks
-      lockLid();
-      Serial.println("Lid opened - Locks ENGAGED");
       lidWasOpened = true;
 
-      if (currentState == WAITING_FOR_LID_OPEN) {
-        Serial.println("Ready for new cycle - close lid, then press START");
-        changeState(WAITING_FOR_LID_CLOSE);
-      } else if (currentState == WAITING_FOR_START_BUTTON) {
-        Serial.println("Lid opened before START was pressed - close lid again");
+      bool cycleStillSecured = (currentState == PRE_START_DELAY ||
+                                currentState == RAMPING_UP ||
+                                currentState == HOLDING_SPEED ||
+                                currentState == RAMPING_DOWN ||
+                                currentState == POST_SPIN_DELAY ||
+                                currentState == FAULT_LOCKOUT);
+      if (cycleStillSecured) {
+        lockLid();
+        Serial.println("Lid opened during secured cycle - locks remain ENGAGED");
+      } else {
+        unlockLid();
+        Serial.println("Lid opened - locks UNLOCKED");
         changeState(WAITING_FOR_LID_CLOSE);
       }
     } else {
       // Lid just closed
-      if (currentState == WAITING_FOR_LID_CLOSE && lidWasOpened) {
+      if (currentState == WAITING_FOR_LID_CLOSE) {
         lockLid();
         Serial.println("=================================");
         Serial.println("LID CLOSED - Press START to begin");
@@ -480,8 +484,8 @@ void enterFault(const char *reason) {
   Serial.println(" seconds");
   Serial.println("#################################");
   stopMotor();
-  // Lock is already engaged during a cycle; make sure of it
-  lockRelay.State(false);
+  // Lock is already engaged during a cycle; make sure of it.
+  lockLid();
   changeState(FAULT_LOCKOUT);
 }
 
