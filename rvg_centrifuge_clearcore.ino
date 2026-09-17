@@ -23,11 +23,14 @@
 //   Confirm terminal order against the label printed on the ClearCore.
 //   M-0  : ClearPath SDSK via Teknic 8-pin Mini-Fit controller cable
 //          (CPM-CABLE-CTRL-MU120 = 10 ft, CPM-CABLE-CTRL-MM660 = 55 ft)
-//   I/O-0: Lock relay COIL, wired between + and S.
+//   I/O-0: HES 610 cabinet lock, driven directly: lock terminal 1 to +,
+//          lock terminal 4 to S, jumper 2-3 (24 V wiring), ~130 mA.
 //          ClearCore outputs switch the low side ("negative true").
-//          No flyback diode needed (built-in clamping).
-//          Coil must be 24VDC, 375 mA RMS max (9 W max).
-//          Relay energized = lock RELEASED (unlocked).
+//          HES requires its recovery diode across the coil on DC
+//          (banded end to terminal 1), even with ClearCore's clamping.
+//          Lock rosette set to FAIL-UNLOCKED:
+//          I/O-0 energized = LOCKED, de-energized = UNLOCKED.
+//          A power loss or reset leaves the lid unlocked.
 //   I/O-1: Start button (normally open), wired between S and G
 //   I/O-2: Magnetic lid switch (normally open reed), wired between S and G
 //          Inputs are "negative true": ON when S is pulled to G.
@@ -80,7 +83,8 @@ unsigned long rampUpTime    = 5000;   // 5 seconds to ramp up
 unsigned long holdTime      = 5000;   // 5 seconds at full speed
 unsigned long rampDownTime  = 10000;  // 10 seconds to ramp down
 unsigned long postSpinDelay = 3000;   // Keep lid locked this long after stop
-unsigned long preStartDelay = 0;      // Start as soon as the motor is enabled
+unsigned long preStartDelay = 0;      // Minimum wait after START before spinning
+const unsigned long ENABLE_TIMEOUT = 3000; // Max wait for the ClearPath to report ready (HLFB)
 
 // ---------------- ClearCore-specific settings ----------------
 const unsigned long VELOCITY_UPDATE_MS = 10;     // How often the S-curve speed is re-sent
@@ -124,6 +128,7 @@ bool motorHasAlert();
 void enterFault(const char *reason);
 void printStateName(SystemState state);
 void changeState(SystemState newState);
+void goToLidOpenWait();
 
 // =====================================================================
 void setup() {
@@ -164,7 +169,7 @@ void setup() {
   motor.EnableRequest(false);  // Motor disabled until a cycle starts
 
   Serial.println("=================================");
-  Serial.println("Centrifuge Control System v4.0 (ClearCore)");
+  Serial.println("Centrifuge Control System v4.1 (ClearCore)");
   Serial.println("Close lid, then press START");
   Serial.println("=================================");
   Serial.print("Top speed: ");
@@ -175,17 +180,17 @@ void setup() {
   Serial.print("Acceleration limit: ");
   Serial.print(accelLimit);
   Serial.println(" steps/sec^2");
-  Serial.println("\nLock Operation:");
-  Serial.println("- Locks ENGAGED (locked) when lid is open");
-  Serial.println("- Locks STAY ENGAGED during cycle");
-  Serial.println("- Locks UNLOCK only after cycle completes");
+  Serial.println("\nLock Operation (HES 610, fail-unlocked):");
+  Serial.println("- Lock UNLOCKED (de-energized) while lid is open");
+  Serial.println("- Lock ENGAGES (energized) when lid closes");
+  Serial.println("- Lock STAYS ENGAGED during cycle");
+  Serial.println("- Lock UNLOCKS after cycle completes");
   Serial.println("\nOperation:");
-  Serial.println("1. After cycle, locks unlock");
-  Serial.println("2. Open lid (locks re-engage)");
-  Serial.println("3. Insert samples");
-  Serial.println("4. Close lid");
-  Serial.println("5. Press START -> spin begins after 2 seconds");
-  Serial.println("6. Cycle ends -> locks unlock");
+  Serial.println("1. Open lid, insert samples");
+  Serial.println("2. Close lid (lock engages)");
+  Serial.println("3. Press START -> spin begins once the motor is ready");
+  Serial.println("4. Cycle ends -> lock releases");
+  Serial.println("5. Open lid to remove samples");
   Serial.println("=================================");
 
   // ---- Input test printout ----
@@ -298,30 +303,28 @@ void loop() {
       break;
 
     case PRE_START_DELAY: {
-      static unsigned long lastPreStartDebug = 0;
-      if (millis() - lastPreStartDebug >= 500) {
-        long remaining = (long)preStartDelay - (long)(millis() - stateStartTime);
-        if (remaining < 0) remaining = 0;
-        Serial.print("Starting in: ");
-        Serial.print(remaining / 1000.0);
-        Serial.println(" seconds");
-        lastPreStartDebug = millis();
+      unsigned long elapsed = millis() - stateStartTime;
+
+      // Wait at least preStartDelay, then until the ClearPath reports ready
+      if (elapsed < preStartDelay) break;
+
+      if (motor.HlfbState() != MotorDriver::HLFB_ASSERTED) {
+        if (elapsed >= preStartDelay + ENABLE_TIMEOUT) {
+          enterFault("Motor did not finish enabling (HLFB not asserted)");
+        }
+        break;   // Not ready yet - check again next loop
       }
 
-      if (millis() - stateStartTime >= preStartDelay) {
-        if (motor.HlfbState() != MotorDriver::HLFB_ASSERTED) {
-          enterFault("Motor did not finish enabling (HLFB not asserted)");
-          break;
-        }
-        motor.ClearAlerts();   // Clear anything left over from enabling
-        Serial.println("Pre-start delay complete - Starting motor!");
-        Serial.print("Direction: ");
-        Serial.println(spinClockwise ? "Clockwise" : "Counter-Clockwise");
-        motorStopCommanded = false;
-        moveRejectReported = false;
-        lastVelocityUpdate = 0;
-        changeState(RAMPING_UP);
-      }
+      motor.ClearAlerts();   // Clear anything left over from enabling
+      Serial.print("Motor ready after ");
+      Serial.print(elapsed);
+      Serial.println(" ms - Starting motor!");
+      Serial.print("Direction: ");
+      Serial.println(spinClockwise ? "Clockwise" : "Counter-Clockwise");
+      motorStopCommanded = false;
+      moveRejectReported = false;
+      lastVelocityUpdate = 0;
+      changeState(RAMPING_UP);
       break;
     }
 
@@ -390,7 +393,7 @@ void loop() {
         unlockLid();
         Serial.println("Lid UNLOCKED - Open lid to remove samples");
         Serial.println("Must open and close lid for next cycle");
-        changeState(WAITING_FOR_LID_OPEN);
+        goToLidOpenWait();
       }
       break;
 
@@ -406,7 +409,7 @@ void loop() {
         Serial.println("Fault hold time elapsed - UNLOCKING lid");
         Serial.println("Motor fault will be cleared on the next START");
         unlockLid();
-        changeState(WAITING_FOR_LID_OPEN);
+        goToLidOpenWait();
       }
       break;
   }
@@ -488,6 +491,17 @@ void enterFault(const char *reason) {
   // Lock is already engaged during a cycle; make sure of it.
   lockLid();
   changeState(FAULT_LOCKOUT);
+}
+
+// After an unlock: wait for the lid to open, unless it is already open
+// (e.g. it was opened during a fault lockout), in which case wait for close.
+void goToLidOpenWait() {
+  if (isLidClosed()) {
+    changeState(WAITING_FOR_LID_OPEN);
+  } else {
+    Serial.println("Lid already open - close lid to start a new cycle");
+    changeState(WAITING_FOR_LID_CLOSE);
+  }
 }
 
 void changeState(SystemState newState) {
